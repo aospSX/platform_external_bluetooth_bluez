@@ -88,7 +88,7 @@ struct astream_out {
     uint32_t                sample_rate;
     size_t                  buffer_size;
     uint32_t                channels;
-    int                     format;
+    audio_format_t          format;
 
     int                     fd;
     bool                    standby;
@@ -597,10 +597,19 @@ static int _out_a2dp_suspend(struct astream_out *out, bool suspend)
     return 0;
 }
 
+#ifdef AUDIO_DEVICE_API_VERSION_1_0
+static int adev_open_output_stream(struct audio_hw_device *dev,
+				   audio_io_handle_t handle,
+				   audio_devices_t devices,
+				   audio_output_flags_t flags,
+				   struct audio_config *config,
+				   struct audio_stream_out **stream_out)
+#else
 static int adev_open_output_stream(struct audio_hw_device *dev,
                                    uint32_t devices, int *format,
                                    uint32_t *channels, uint32_t *sample_rate,
                                    struct audio_stream_out **stream_out)
+#endif
 {
     struct adev_a2dp *adev = (struct adev_a2dp *)dev;
     struct astream_out *out;
@@ -658,9 +667,16 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     out->buffer_duration_us = ((out->buffer_size * 1000 ) /
                                audio_stream_frame_size(&out->stream.common) /
                                out->sample_rate) * 1000;
+#ifdef AUDIO_DEVICE_API_VERSION_1_0
+    if (!_out_validate_parms(out, config->format,
+                             config->channel_mask,
+                             config->sample_rate))
+#else			  
     if (!_out_validate_parms(out, format ? *format : 0,
                              channels ? *channels : 0,
-                             sample_rate ? *sample_rate : 0)) {
+                             sample_rate ? *sample_rate : 0)) 
+#endif
+{
         LOGV("invalid parameters");
         ret = -EINVAL;
         goto err_validate_parms;
@@ -684,13 +700,18 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
 
     adev->output = out;
 
+#ifdef AUDIO_DEVICE_API_VERSION_1_0
+    config->format = out->format;
+    config->channel_mask = out->channels;
+    config->sample_rate = out->sample_rate;
+#else
     if (format)
         *format = out->format;
     if (channels)
         *channels = out->channels;
     if (sample_rate)
         *sample_rate = out->sample_rate;
-
+#endif
     pthread_mutex_unlock(&adev->lock);
 
     *stream_out = &out->stream;
